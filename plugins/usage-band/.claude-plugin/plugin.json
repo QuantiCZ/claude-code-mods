@@ -1,6 +1,6 @@
 {
   "name": "usage-band",
-  "version": "0.1.0",
-  "description": "A band above the prompt showing session usage: context fill, token totals and cost so far.",
+  "version": "0.3.0",
+  "description": "A band above the prompt showing session usage: cost, prompts, rate limits and context fill.",
   "author": { "name": "Vladimír Blažek" }
 }

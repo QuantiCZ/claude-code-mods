@@ -13,7 +13,7 @@ Quanti marketplace of Claude Code mods (`quanti-mods`). Private repo: you need a
 
 | Mod | Description |
 | --- | --- |
-| [usage-band](plugins/usage-band) | Band above the prompt with context fill, token totals and cost. |
+| [usage-band](plugins/usage-band) | Band above the prompt with the session's cost, prompts, rate limits and context fill. |
 
 ## Adding a mod
 

@@ -6,7 +6,7 @@
     {
       "name": "usage-band",
       "source": "./plugins/usage-band",
-      "description": "A band above the prompt showing session usage: context fill, token totals and cost so far."
+      "description": "A band above the prompt showing session usage: cost, prompts, rate limits and context fill."
     }
   ]
 }
