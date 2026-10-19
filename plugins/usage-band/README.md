@@ -6,7 +6,7 @@ Needs Claude Code 2.1.287 or later.
 
 ![usage-band on desktop: $0.17, 1 prompt, the 5-hour limit at 53% resetting in 39m, the weekly limit at 17% resetting in 4d 18h, and the context at 64.9k of 1M (6%)](../../docs/images/usage-band.png)
 
-- **Context fill**: a meter and percentage (a rounded bar on desktop, a line in the terminal), coloured
+- **Context fill**: a short meter and percentage (a rounded bar on desktop, a line in the terminal), coloured
   by the theme: success below 50%, warning from 50%, Claude orange from 75%, error from 90%.
 - **Context**: tokens in the live context window against the window size.
 - **Cost**: the session's cost so far, as `/cost` totals it (an estimate at API prices), where Claude
@@ -16,9 +16,11 @@ Needs Claude Code 2.1.287 or later.
   pill showing the share used and the time until it resets, as the Usage panel shows them. Absent
   off a subscription. The share updates with each response from the model; the countdown every minute.
 
-On desktop the rate-limit pills have a slightly darker, recessed background; the rest is plain text.
+On desktop the rate-limit pills are rounded, with a slightly darker, recessed background; the rest is
+plain text.
 
-Under 80 columns the band drops the prompt count.
+The band never wraps: when it does not fit its width it drops the reset countdowns first, then the
+prompt count.
 
 The band reads usage as soon as the session starts, showing an animated placeholder until the first
 figures arrive (it gives up after 30 seconds without any). It refreshes when a turn finishes and steps

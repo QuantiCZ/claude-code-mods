@@ -8,12 +8,19 @@ import type {
 } from 'claude-code'
 
 import {
+  BAR_CELLS,
+  METER_PX,
+  PILL_DIM_HEX,
   bar,
   colorFor,
   dots,
   limitLabel,
+  limitText,
   meterSvg,
+  pillSvg,
+  planBand,
   resetIn,
+  severityHex,
   shimmerSvg,
   short,
   skeletonSvg,
@@ -40,10 +47,6 @@ const RETRY_FRAMES = 3
 const GIVE_UP_FRAMES = 300
 // The reset countdowns move on once a minute.
 const CLOCK_MS = 60_000
-// Below this width (in cells) the band drops the prompt count.
-const PROMPTS_MIN_COLUMNS = 80
-// The rate-limit pills' recessed background on desktop.
-const PILL_BG = '#0000002e'
 
 let reading: Reading | null = null
 let now = 0
@@ -204,8 +207,8 @@ export const register: Register = on => {
       if (e.surface === 'desktop') {
         const { Svg } = $.ui.resolve(e)
         spend = <Svg source={skeletonSvg(36, 8)} alt="Loading cost" width={36} height={8} isInteractive />
-        figures = <Svg source={skeletonSvg(64, 8)} alt="Loading context" width={64} height={8} isInteractive />
-        meter = <Svg source={shimmerSvg()} alt="Loading context meter" width={72} height={6} isInteractive />
+        figures = <Svg source={skeletonSvg(56, 8)} alt="Loading context" width={56} height={8} isInteractive />
+        meter = <Svg source={shimmerSvg()} alt="Loading context meter" width={METER_PX} height={6} isInteractive />
       } else {
         animatesTerminal = true
         const { before, glow, after } = sweep(frame)
@@ -233,66 +236,98 @@ export const register: Register = on => {
       )
     }
 
-    const columns = e.props.bodyColumns ?? 80
-    const showsPrompts = columns >= PROMPTS_MIN_COLUMNS && current.prompts !== undefined
+    const { usd, prompts, limits } = current
+    const costText = usd !== undefined ? `$${usd.toFixed(2)}` : ''
+    const promptsText = prompts !== undefined ? `${prompts} ${prompts === 1 ? 'prompt' : 'prompts'}` : ''
+    const contextText = `${short(current.tokens)} / ${short(current.window)}`
+    const percentText = `${current.percent}%`
+    const resetOf = (limit: Limit) => (limit.resetsAt === undefined ? undefined : resetIn(limit.resetsAt - now))
+
+    // Fit the band to its width rather than let a figure wrap: drop the reset
+    // countdowns first, then the prompt count.
+    const { showsResets, showsPrompts } = planBand(e.props.bodyColumns ?? 80, {
+      cost: costText.length,
+      prompts: promptsText.length,
+      limits: limits.map(limit => ({
+        full: limitText(limitLabel(limit.kind), limit.percent, resetOf(limit)).length,
+        compact: limitText(limitLabel(limit.kind), limit.percent).length,
+      })),
+      gauge: contextText.length + 1 + percentText.length + 1 + BAR_CELLS,
+    })
     const severity = colorFor(current.percent)
 
-    // A meter at any size: an SVG pill on desktop, a line of cells in the terminal.
-    const meterOf = (key: string, percent: number, alt: string, width: number, height: number, cells: number) => {
+    // A rate limit's pill. On desktop an SVG, for its rounded ends; in the
+    // terminal plain runs of text on the band.
+    const pillOf = (limit: Limit) => {
+      const label = limitLabel(limit.kind)
+      const reset = showsResets ? resetOf(limit) : undefined
       if (e.surface === 'desktop') {
         const { Svg } = $.ui.resolve(e)
-        return <Svg source={meterSvg(percent, width, height)} alt={alt} width={width} height={height} />
+        const runs = [
+          { text: `${label} `, color: PILL_DIM_HEX },
+          { text: `${limit.percent}%`, color: severityHex(limit.percent) },
+          ...(reset === undefined ? [] : [{ text: ` ↻ ${reset}`, color: PILL_DIM_HEX }]),
+        ]
+        const pill = pillSvg(runs)
+        return <Svg source={pill.source} alt={limitText(label, limit.percent, reset)} width={pill.width} height={pill.height} />
       }
-      const { fill, track } = bar(percent, cells)
       return (
-        <Box key={key} flexDirection="row">
-          <Text color={colorFor(percent)}>{fill}</Text>
-          <Text color="inactive">{track}</Text>
+        <Box flexDirection="row" gap={1}>
+          <Text dimColor>{label}</Text>
+          <Text color={colorFor(limit.percent)}>{`${limit.percent}%`}</Text>
+          {reset !== undefined ? <Text dimColor>{`↻ ${reset}`}</Text> : null}
         </Box>
       )
     }
 
-    const { usd, prompts, limits } = current
+    const meter =
+      e.surface === 'desktop'
+        ? (() => {
+            const { Svg } = $.ui.resolve(e)
+            return <Svg source={meterSvg(current.percent)} alt={`Context ${current.percent}% full`} width={METER_PX} height={6} />
+          })()
+        : (() => {
+            const { fill, track } = bar(current.percent)
+            return (
+              <Box key="meter" flexDirection="row" flexShrink={0}>
+                <Text color={severity}>{fill}</Text>
+                <Text color="inactive">{track}</Text>
+              </Box>
+            )
+          })()
 
-    // The rate limits sit in recessed pills, a translucent black that darkens
-    // any theme (desktop only; the terminal draws them on the band). Cost,
-    // prompts and the context gauge stay plain text.
-    const pillProps = e.surface === 'desktop' ? { backgroundColor: PILL_BG } : {}
-
+    // Cost, prompts and the rate-limit pills on the left; the context gauge on
+    // the right. Nothing shrinks, so no figure wraps onto a second row.
     return (
       <Box flexDirection="row" justifyContent="space-between" alignItems="center" width="100%" paddingX={1}>
-        <Box key="left" flexDirection="row" alignItems="center" gap={2}>
+        <Box key="left" flexDirection="row" alignItems="center" gap={2} flexShrink={0}>
           {usd !== undefined ? (
-            <Box key="spend" flexDirection="row">
-              <Text>{`$${usd.toFixed(2)}`}</Text>
+            <Box key="spend" flexDirection="row" flexShrink={0}>
+              <Text wrap="truncate-end">{costText}</Text>
             </Box>
           ) : null}
-          {showsPrompts ? (
-            <Box key="prompts" flexDirection="row">
-              <Text dimColor>{`${prompts} ${prompts === 1 ? 'prompt' : 'prompts'}`}</Text>
+          {showsPrompts && prompts !== undefined ? (
+            <Box key="prompts" flexDirection="row" flexShrink={0}>
+              <Text dimColor wrap="truncate-end">{promptsText}</Text>
             </Box>
           ) : null}
           {limits.length > 0 ? (
-            <Box key="limits" flexDirection="row" alignItems="center" gap={1}>
+            <Box key="limits" flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
               {limits.map(limit => (
-                <Box key={`limit-${limit.kind}`} flexDirection="row" gap={1} paddingX={1} {...pillProps}>
-                  <Text dimColor>{limitLabel(limit.kind)}</Text>
-                  <Text color={colorFor(limit.percent)}>{`${limit.percent}%`}</Text>
-                  {limit.resetsAt !== undefined ? (
-                    <Text dimColor>{`↻ ${resetIn(limit.resetsAt - now)}`}</Text>
-                  ) : null}
+                <Box key={`limit-${limit.kind}`} flexDirection="row" flexShrink={0}>
+                  {pillOf(limit)}
                 </Box>
               ))}
             </Box>
           ) : null}
         </Box>
-        <Box key="gauge" flexDirection="row" alignItems="center" gap={1}>
-          <Box key="context" flexDirection="row">
+        <Box key="gauge" flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
+          <Box key="context" flexDirection="row" flexShrink={0}>
             <Text>{short(current.tokens)}</Text>
             <Text dimColor>{` / ${short(current.window)}`}</Text>
           </Box>
-          <Text bold color={severity}>{`${current.percent}%`}</Text>
-          {meterOf('meter', current.percent, `Context ${current.percent}% full`, 72, 6, 10)}
+          <Text bold color={severity}>{percentText}</Text>
+          {meter}
         </Box>
       </Box>
     )

@@ -58,7 +58,7 @@ test('draws an SVG meter on desktop and a line meter in the terminal', async ($,
   await desktop.unmount()
 
   const terminal = await $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'AbovePrompt', props: props(120) })
-  expect((await terminal.find({ key: 'meter' }))?.text).toBe('━─────────')
+  expect((await terminal.find({ key: 'meter' }))?.text).toBe('━────')
   expect(await terminal.find({ key: 'spend' })).toBeUndefined()
   await terminal.unmount()
 })
@@ -91,10 +91,10 @@ test('shows an animated placeholder until the first reading arrives', async ($, 
 
   const terminal = await $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'AbovePrompt', props: props(120) })
   expect((await terminal.find({ key: 'spend' }))?.text).toBe('⠋')
-  expect((await terminal.find({ key: 'meter' }))?.text).toBe('━━━───────')
+  expect((await terminal.find({ key: 'meter' }))?.text).toBe('━━───')
   await clock.advance(100)
   expect((await terminal.find({ key: 'spend' }))?.text).toBe('⠙')
-  expect((await terminal.find({ key: 'meter' }))?.text).toBe('─━━━──────')
+  expect((await terminal.find({ key: 'meter' }))?.text).toBe('─━━──')
 
   const desktop = await $.ui.mount({ plugin: 'usage-band', surface: 'desktop', component: 'AbovePrompt', props: props(120) })
   const shimmer = (await desktop.findAll({ type: 'Svg' })).find(svg => svg.props.alt === 'Loading context meter')
@@ -145,35 +145,34 @@ test('shows the cost and prompts as text and each rate limit in a pill with its 
   }))
   await $.session.start(START)
 
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'usage-band', surface, component: 'AbovePrompt', props: props(140) })
-    expect((await ui.find({ key: 'spend' }))?.text).toBe('$3.80')
-    expect((await ui.find({ key: 'prompts' }))?.text).toBe('14 prompts')
-    // Cost, prompts, then the 5-hour and weekly pills, left to right.
-    const left = (await ui.find({ key: 'left' }))?.text ?? ''
-    expect(left.indexOf('$3.80')).toBeLessThan(left.indexOf('14 prompts'))
-    expect(left.indexOf('14 prompts')).toBeLessThan(left.indexOf('5h'))
-    expect(left.indexOf('5h')).toBeLessThan(left.indexOf('week'))
-    expect((await ui.find({ key: 'limit-five_hour' }))?.text).toBe('5h9%↻ 4h 27m')
-    expect((await ui.find({ key: 'limit-seven_day' }))?.text).toBe('week3%↻ 4d 19h')
-    expect((await ui.find({ type: 'Text', text: '9%' }))?.props.color).toBe('success')
-    // Pills on desktop for the rate limits only; cost and context stay plain.
-    const pillBg = surface === 'desktop' ? '#0000002e' : undefined
-    expect((await ui.find({ key: 'limit-five_hour' }))?.props.backgroundColor).toBe(pillBg)
-    expect((await ui.find({ key: 'limit-seven_day' }))?.props.backgroundColor).toBe(pillBg)
-    for (const key of ['spend', 'prompts', 'gauge']) {
-      expect((await ui.find({ key }))?.props.backgroundColor).toBeUndefined()
-    }
-    await ui.unmount()
-  }
-
-  const ui = await $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'AbovePrompt', props: props(140) })
+  // Terminal: the pills are runs of text on the band, in order.
+  const terminal = await $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'AbovePrompt', props: props(140) })
+  expect((await terminal.find({ key: 'spend' }))?.text).toBe('$3.80')
+  expect((await terminal.find({ key: 'prompts' }))?.text).toBe('14 prompts')
+  const left = (await terminal.find({ key: 'left' }))?.text ?? ''
+  expect(left.indexOf('$3.80')).toBeLessThan(left.indexOf('14 prompts'))
+  expect(left.indexOf('14 prompts')).toBeLessThan(left.indexOf('5h'))
+  expect(left.indexOf('5h')).toBeLessThan(left.indexOf('week'))
+  expect((await terminal.find({ key: 'limit-five_hour' }))?.text).toBe('5h9%↻ 4h 27m')
+  expect((await terminal.find({ key: 'limit-seven_day' }))?.text).toBe('week3%↻ 4d 19h')
+  expect((await terminal.find({ type: 'Text', text: '9%' }))?.props.color).toBe('success')
   await clock.advance(60_000)
-  expect((await ui.find({ key: 'limit-five_hour' }))?.text).toContain('↻ 4h 26m')
-  await ui.unmount()
+  expect((await terminal.find({ key: 'limit-five_hour' }))?.text).toContain('↻ 4h 26m')
+  await terminal.unmount()
+
+  // Desktop: each pill is an SVG with rounded ends; cost and context are plain text.
+  const desktop = await $.ui.mount({ plugin: 'usage-band', surface: 'desktop', component: 'AbovePrompt', props: props(140) })
+  const pills = (await desktop.findAll({ type: 'Svg' })).filter(svg => !String(svg.props.alt).startsWith('Context'))
+  expect(pills.map(svg => svg.props.alt)).toEqual(['5h 9% ↻ 4h 26m', 'week 3% ↻ 4d 18h'])
+  expect(String(pills[0]?.props.source)).toContain('rx="10"')
+  expect(String(pills[0]?.props.source)).toContain('<tspan fill="#4eba65">9%</tspan>')
+  for (const key of ['spend', 'prompts', 'gauge']) {
+    expect((await desktop.find({ key }))?.props.backgroundColor).toBeUndefined()
+  }
+  await desktop.unmount()
 })
 
-test('drops the prompt count as the band narrows', async ($, on) => {
+test('fits the band to its width: resets go first, then the prompt count', async ($, on) => {
   mock.clock(on, { now: NOW })
   on('session.start', () => ({ cwd: '/' }))
   on('session.turns', () => ({ value: 1 }))
@@ -182,14 +181,31 @@ test('drops the prompt count as the band narrows', async ($, on) => {
   }))
   await $.session.start(START)
 
-  const medium = await $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'AbovePrompt', props: props(90) })
+  // 76 cells in full, 58 without the resets (the sizes in format.test.ts).
+  const mount = (columns: number) =>
+    $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'AbovePrompt', props: props(columns) })
+
+  const full = await mount(76)
+  expect((await full.find({ key: 'limit-five_hour' }))?.text).toContain('↻')
+  expect((await full.find({ key: 'prompts' }))?.text).toBe('1 prompt')
+  await full.unmount()
+
+  const medium = await mount(70)
+  expect((await medium.find({ key: 'limit-five_hour' }))?.text).toBe('5h9%')
   expect((await medium.find({ key: 'prompts' }))?.text).toBe('1 prompt')
   await medium.unmount()
 
-  const narrow = await $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'AbovePrompt', props: props(70) })
+  const narrow = await mount(50)
   expect(await narrow.find({ key: 'prompts' })).toBeUndefined()
-  expect(await narrow.find({ key: 'limit-five_hour' })).toBeDefined()
+  expect((await narrow.find({ key: 'limit-five_hour' }))?.text).toBe('5h9%')
+  expect((await narrow.find({ key: 'gauge' }))?.text).toBe('24k / 200k12%━────')
   await narrow.unmount()
+
+  const desktop = await $.ui.mount({ plugin: 'usage-band', surface: 'desktop', component: 'AbovePrompt', props: props(70) })
+  const alts = (await desktop.findAll({ type: 'Svg' })).map(svg => String(svg.props.alt))
+  expect(alts).toContain('5h 9%')
+  expect(alts).toContain('week 3%')
+  await desktop.unmount()
 })
 
 test('hides the limits when the account reports none', async ($, on) => {
