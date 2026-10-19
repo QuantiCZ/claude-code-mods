@@ -1,4 +1,6 @@
-export const BAR_CELLS = 10
+// The context meter: cells in the terminal, CSS pixels on desktop.
+export const BAR_CELLS = 5
+export const METER_PX = 36
 
 export type Severity = 'success' | 'warning' | 'claude' | 'error'
 
@@ -88,7 +90,7 @@ export function resetIn(ms: number): string {
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const DOTS = ['·  ', '·· ', '···', ' ··', '  ·', '   ']
-export const GLOW_CELLS = 3
+export const GLOW_CELLS = 2
 
 export function spinner(frame: number): string {
   return SPINNER[frame % SPINNER.length] ?? ''
@@ -123,7 +125,7 @@ export function skeletonSvg(width: number, height: number): string {
 }
 
 // The desktop meter while loading: the empty track with a highlight gliding across.
-export function shimmerSvg(width = 72, height = 6): string {
+export function shimmerSvg(width = METER_PX, height = 6): string {
   const r = height / 2
   const glow = Math.round(width / 3)
   return (
@@ -141,7 +143,7 @@ export function shimmerSvg(width = 72, height = 6): string {
 
 // The desktop meter: a rounded pill, its fill never thinner than its height
 // once anything is used, so 1% still shows as a dot.
-export function meterSvg(percent: number, width = 72, height = 6): string {
+export function meterSvg(percent: number, width = METER_PX, height = 6): string {
   const p = clampPercent(percent)
   const r = height / 2
   const fillWidth = p === 0 ? 0 : Math.max(height, Math.round((p / 100) * width))
@@ -155,4 +157,69 @@ export function meterSvg(percent: number, width = 72, height = 6): string {
     fill +
     `</svg>`
   )
+}
+
+// A rate limit's pill text: "5h 9% ↻ 4h 27m", or "5h 9%" without the reset.
+export function limitText(label: string, percent: number, reset?: string): string {
+  return reset === undefined ? `${label} ${percent}%` : `${label} ${percent}% ↻ ${reset}`
+}
+
+// The desktop pill: rounded ends, monospace text in coloured runs. Drawn as an
+// SVG since a Box has no rounded corners, and an SVG never wraps or shrinks.
+const PILL_FONT_PX = 12
+const PILL_CHAR_PX = 7.2
+const PILL_PAD_PX = 8
+const PILL_HEIGHT_PX = 20
+// Grey that reads on light and dark themes alike, for the pill's dim runs.
+export const PILL_DIM_HEX = '#8e8e8e'
+
+export type PillRun = { text: string; color: string }
+
+export function severityHex(percent: number): string {
+  return SEVERITY_HEX[colorFor(percent)]
+}
+
+function escapeXml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+export function pillSvg(runs: readonly PillRun[]): { source: string; width: number; height: number } {
+  const chars = runs.reduce((n, run) => n + [...run.text].length, 0)
+  const width = Math.ceil(chars * PILL_CHAR_PX + 2 * PILL_PAD_PX)
+  const height = PILL_HEIGHT_PX
+  const spans = runs.map(run => `<tspan fill="${run.color}">${escapeXml(run.text)}</tspan>`).join('')
+  const source =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    `<rect width="${width}" height="${height}" rx="${height / 2}" fill="#000000" fill-opacity="0.18"/>` +
+    `<text x="${PILL_PAD_PX}" y="${height / 2}" dominant-baseline="central" xml:space="preserve" ` +
+    `font-family="ui-monospace, 'Cascadia Mono', Consolas, Menlo, monospace" font-size="${PILL_FONT_PX}">` +
+    spans +
+    `</text></svg>`
+  return { source, width, height }
+}
+
+// What the band would hold, in cells, to decide what fits.
+export type BandSizes = {
+  cost: number
+  prompts: number
+  limits: readonly { full: number; compact: number }[]
+  gauge: number
+}
+
+// Fits the band to its width: the full band if it fits, else without the reset
+// countdowns, else without the prompt count as well.
+export function planBand(columns: number, sizes: BandSizes): { showsResets: boolean; showsPrompts: boolean } {
+  const widthOf = (showsResets: boolean, showsPrompts: boolean) => {
+    const pills = sizes.limits.map(limit => (showsResets ? limit.full : limit.compact) + 2)
+    const pillsWidth = pills.length > 0 ? pills.reduce((a, b) => a + b, 0) + pills.length - 1 : 0
+    const left = [sizes.cost, showsPrompts ? sizes.prompts : 0, pillsWidth].filter(w => w > 0)
+    const leftWidth = left.reduce((a, b) => a + b, 0) + 2 * Math.max(0, left.length - 1)
+    return 2 + leftWidth + 2 + sizes.gauge
+  }
+  const plans = [
+    { showsResets: true, showsPrompts: true },
+    { showsResets: false, showsPrompts: true },
+    { showsResets: false, showsPrompts: false },
+  ]
+  return plans.find(plan => widthOf(plan.showsResets, plan.showsPrompts) <= columns) ?? plans[2]!
 }
